@@ -37,16 +37,16 @@ def start_server(supervisor):
     return srv
 
 def spawn(program):
-    """Launch one process of `program` (a ProgramConfig) and return its Popen."""
+    """Launch one process of `program` (a config dict) and return its Popen."""
     outputs = []
     try:
-        for path in (program.stdout, program.stderr):
+        for path in (program["stdout"], program["stderr"]):
             outputs.append(subprocess.DEVNULL if path is None else open(path, "ab"))
         return subprocess.Popen(
-            shlex.split(program.cmd),
-            cwd=program.workingdir,
-            env={**os.environ, **program.env},
-            umask=-1 if program.umask is None else program.umask,
+            shlex.split(program["cmd"]),
+            cwd=program["workingdir"],
+            env={**os.environ, **program["env"]},
+            umask=-1 if program["umask"] is None else program["umask"],
             stdin=subprocess.DEVNULL,
             stdout=outputs[0],
             stderr=outputs[1],
@@ -63,7 +63,7 @@ class Supervisor:
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.config_path = config_path
-        self.programs = {}  # name -> ProgramConfig
+        self.programs = {}  # name -> config dict (see config.load_config)
         self.processes = {}  # name -> list of Popen (or None), one slot per numprocs
         self.read_config()
 
@@ -85,8 +85,8 @@ class Supervisor:
                 ok = False
                 continue
             procs = self.processes.setdefault(name, [])
-            procs.extend([None] * (program.numprocs - len(procs)))
-            for i in range(program.numprocs):
+            procs.extend([None] * (program["numprocs"] - len(procs)))
+            for i in range(program["numprocs"]):
                 label = f"{name}:{i}"
                 if procs[i] is not None and procs[i].poll() is None:
                     lines.append(f"{label}: ERROR (already running)")
@@ -132,6 +132,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="Taskmaster command-line interface.")
     parser.add_argument("--version", action="version", version="Taskmaster 1.0")
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to configuration file.")
+    parser.add_argument("--socket", type=str, default="/tmp/taskmaster.sock", help="Path to the Unix socket file.")
     parser.add_argument("--launch", type=str, help="Command to launch the program.")
     parser.add_argument("--number", type=int, help="Number of instances to launch.")
     return parser.parse_args()
