@@ -7,10 +7,19 @@ class ConfigError(Exception):
 
 
 DEFAULTS = {
-    "numprocs": 1, "umask": None, "workingdir": None, "autostart": True,
-    "autorestart": "unexpected", "exitcodes": [0], "startretries": 3,
-    "starttime": 1, "stopsignal": "TERM", "stoptime": 10,
-    "stdout": None, "stderr": None, "env": {},
+    "numprocs": 1, 
+    "umask": None, 
+    "workingdir": None, 
+    "autostart": True,
+    "autorestart": "unexpected",
+    "exitcodes": [0], 
+    "startretries": 3,
+    "starttime": 1, 
+    "stopsignal": "TERM",
+    "stoptime": 10,
+    "stdout": None, 
+    "stderr": None, 
+    "env": {},
 }
 
 
