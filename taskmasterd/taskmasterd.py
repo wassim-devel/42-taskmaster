@@ -1,9 +1,11 @@
 import json
 import os
 import shlex
+import signal
 import socketserver
 import sys
 import threading
+import time
 import subprocess
 import argparse
 
@@ -58,6 +60,18 @@ def spawn(program):
                 f.close()
 
 
+def signal_group(proc, sig):
+    """Send `sig` to `proc` and to everything it spawned.
+
+    start_new_session makes each child the leader of its own process group (pgid == pid).
+    Signalling the group avoids leaving orphans, e.g. the `sleep` of `sh -c 'sleep 60; echo done'`.
+    """
+    try:
+        os.killpg(proc.pid, sig)
+    except ProcessLookupError:
+        pass  # the whole group is already gone
+
+
 class Supervisor:
     def __init__(self, config_path):
         self.lock = threading.Lock()
@@ -89,9 +103,7 @@ class Supervisor:
             for i in range(program["numprocs"]):
                 label = f"{name}:{i}"
                 if procs[i] is not None and procs[i].poll() is None:
-                    lines.append(f"{label}: ERROR (already running)")
-                    ok = False
-                    continue
+                    continue  # already running: nothing to do, supervisorctl is silent too
                 try:
                     procs[i] = spawn(program)
                 except (OSError, subprocess.SubprocessError) as e:
@@ -101,10 +113,50 @@ class Supervisor:
                     lines.append(f"{label}: started (pid {procs[i].pid})")
         return {"ok": ok, "output": "\n".join(lines)}
 
+    def stop(self, names):
+        """Send stopsignal to each instance, then SIGKILL those still alive after stoptime.
+
+        Blocks until every instance is dead: at most the longest stoptime, since all
+        instances are signalled first and then waited for in parallel.
+        """
+        if not names:
+            return {"ok": False, "output": "usage: stop <name> [<name> ...] | stop all"}
+        if names == ["all"]:
+            names = list(self.programs)
+        ok = True
+        results = {}  # label -> message, in display order
+        stopping = []  # (label, program, proc, deadline)
+        for name in names:
+            program = self.programs.get(name)
+            if program is None:
+                results[name] = "ERROR (no such program)"
+                ok = False
+                continue
+            procs = self.processes.setdefault(name, [])
+            procs.extend([None] * (program["numprocs"] - len(procs)))
+            for i, proc in enumerate(procs):
+                label = f"{name}:{i}"
+                if proc is None or proc.poll() is not None:
+                    continue  # not running: nothing to do, supervisorctl is silent too
+                signal_group(proc, program["stopsignal"])
+                results[label] = None  # set below, once we know how it ended
+                stopping.append((label, program, proc, time.monotonic() + program["stoptime"]))
+        for label, program, proc, deadline in stopping:
+            try:
+                proc.wait(timeout=max(0, deadline - time.monotonic()))
+                results[label] = "stopped"
+            except subprocess.TimeoutExpired:
+                signal_group(proc, signal.SIGKILL)
+                proc.wait()
+                results[label] = f"stopped (killed with SIGKILL after {program['stoptime']}s)"
+        return {"ok": ok, "output": "\n".join(f"{label}: {msg}" for label, msg in results.items())}
+
     def execute(self, cmd, args):
         with self.lock:
             if cmd == "start":
                 return self.start(args)
+            if cmd == "stop":
+                return self.stop(args)
             if cmd == "status":
                 return {"ok": True, "output": "no programs yet"}
             if cmd == "shutdown":
