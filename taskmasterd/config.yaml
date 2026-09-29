@@ -1,34 +1,57 @@
 programs:
-  nginx:
-    cmd: "/usr/local/bin/nginx -c /etc/nginx/test.conf"
-    numprocs: 1
-    umask: 022
-    workingdir: /tmp
+  # base case, numprocs, kill -9 by hand
+  sleeper:
+    cmd: "sleep 1000"
+    numprocs: 3
     autostart: true
+    autorestart: always
+
+  expected_exit:      # exit 0 attendu -> pas de relance
+    cmd: "sh -c 'sleep 2; exit 0'"
     autorestart: unexpected
-    exitcodes:
-    - 0
-    - 2
-    startretries: 3
-    starttime: 5
-    stopsignal: TERM
-    stoptime: 10
-    stdout: /tmp/nginx.stdout
-    stderr: /tmp/nginx.stderr
-    env:
-      STARTED_BY: taskmaster
-      ANSWER: 42
-  vogsphere:
-    cmd: "/usr/local/bin/vogsphere-worker --no-prefork"
-    numprocs: 8
-    umask: 077
-    workingdir: /tmp
-    autostart: true
+    exitcodes: [0]
+
+  # unexpected exit 1, relaunch
+  crasher:
+    cmd: "sh -c 'sleep 2; exit 1'"
     autorestart: unexpected
-    exitcodes: 0
+    exitcodes: [0]
+    starttime: 1
+
+  # dies instantly, testing of retries and starttime
+  never_starts:
+    cmd: "sh -c 'exit 1'"
+    starttime: 3
     startretries: 3
-    starttime: 5
+
+  # non existent program
+  missing:
+    cmd: "/bin/doesnotexist"
+    autostart: false
+
+  # graceful stop
+  graceful:
+    cmd: "sh -c 'trap \"echo got USR1; exit 0\" USR1; while true; do sleep 1; done'"
     stopsignal: USR1
-    stoptime: 10
-    stdout: /tmp/vgsworker.stdout
-    stderr: /tmp/vgsworker.stderr
+    stoptime: 5
+    stdout: /tmp/graceful.out
+
+  # ignore TERM, then sleep forever -> SIGKILL after stoptime
+  stubborn:
+    cmd: "sh -c 'trap \"\" TERM; while true; do sleep 1; done'"
+    stopsignal: TERM
+    stoptime: 3
+
+  envcheck:           # env, workingdir, umask
+    cmd: "sh -c 'echo ANSWER=$ANSWER; pwd; umask; sleep 1000'"
+    workingdir: /tmp
+    umask: 027
+    stdout: /tmp/envcheck.out
+    env:
+      ANSWER: 42
+      STARTED_BY: taskmaster
+
+  web:
+    cmd: "python3 -m http.server 8080"
+    workingdir: /tmp
+    stderr: /tmp/web.err
