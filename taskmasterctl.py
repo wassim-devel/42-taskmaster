@@ -47,7 +47,6 @@ class TaskmasterShell(cmd.Cmd):
 
     def do_stop(self, arg):
         """stop <name>"""
-        print("hey")
         self._run("stop", arg)
 
     def do_restart(self, arg):
