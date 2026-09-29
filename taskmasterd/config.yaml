@@ -16,8 +16,8 @@ programs:
     stdout: /tmp/nginx.stdout
     stderr: /tmp/nginx.stderr
     env:
-    STARTED_BY: taskmaster
-    ANSWER: 42
+      STARTED_BY: taskmaster
+      ANSWER: 42
   vogsphere:
     cmd: "/usr/local/bin/vogsphere-worker --no-prefork"
     numprocs: 8
