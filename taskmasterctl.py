@@ -69,4 +69,6 @@ if __name__ == "__main__":
         client = Client(SOCK_PATH)
     except (FileNotFoundError, ConnectionRefusedError):
         sys.exit("taskmasterd isn't launched")
+    except PermissionError:
+        sys.exit(f"{SOCK_PATH}: permission denied (taskmasterd runs as root? use sudo)")
     TaskmasterShell(client).cmdloop()
