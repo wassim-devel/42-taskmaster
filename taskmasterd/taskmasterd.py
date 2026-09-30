@@ -169,7 +169,10 @@ def main(config_path):
         supervisor = Supervisor(config_path)
     except ConfigError as e:
         sys.exit(f"taskmasterd: {e}")
-    srv = start_server(supervisor)
+    try:
+        srv = start_server(supervisor)
+    except OSError as e:  # e.g. a socket left in /tmp by a taskmasterd run as root
+        sys.exit(f"taskmasterd: cannot create {SOCK_PATH}: {e}")
     print(f"taskmasterd listening on {SOCK_PATH}")
     try:
         supervisor.stop_event.wait()  # blocks the main thread until shutdown
