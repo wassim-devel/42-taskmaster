@@ -55,3 +55,10 @@ programs:
     cmd: "python3 -m http.server 8080"
     workingdir: /tmp
     stderr: /tmp/web.err
+
+  # bonus: privilege de-escalation, taskmasterd must be started as root (sudo)
+  whoami:
+    cmd: "sh -c 'id; echo HOME=$HOME USER=$USER; sleep 1000'"
+    user: nobody
+    autostart: false
+    stdout: /tmp/whoami.out

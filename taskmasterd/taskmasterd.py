@@ -38,21 +38,52 @@ def start_server(supervisor):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
+
+def run_as(user):
+    if user is None or user.pw_uid == os.geteuid():
+        return {}, {}
+    if os.geteuid() != 0:
+        raise PermissionError(f"only root can run a program as {user.pw_name}")
+    ids = {
+        "user": user.pw_uid,
+        "group": user.pw_gid,
+        "extra_groups": os.getgrouplist(user.pw_name, user.pw_gid),
+    }
+    # set env vars to prevent it being those of the root user
+    return ids, {"HOME": user.pw_dir, "USER": user.pw_name, "LOGNAME": user.pw_name}
+
+
+def open_output(path, nofollow):
+    """Open a stdout/stderr file for appending, like open(path, "ab").
+
+    O_NONBLOCK: a FIFO without reader fails instead of blocking the whole daemon.
+    O_NOFOLLOW, prevent security issue where a user can redirect output to a symlink.
+    """
+    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NONBLOCK
+    if nofollow:
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o666)
+    os.set_blocking(fd, True)  # the child must get a normal, blocking stdout
+    return open(fd, "ab")
+
+
 def spawn(program):
     """Launch one process of `program` (a config dict) and return its Popen."""
+    ids, user_env = run_as(program["user"])
     outputs = []
     try:
         for path in (program["stdout"], program["stderr"]):
-            outputs.append(subprocess.DEVNULL if path is None else open(path, "ab"))
+            outputs.append(subprocess.DEVNULL if path is None else open_output(path, nofollow=bool(ids)))
         return subprocess.Popen(
             shlex.split(program["cmd"]),
-            cwd=program["workingdir"],
-            env={**os.environ, **program["env"]},
+            cwd=program["workingdir"],  # entered as root, before the user switch (Popen's order)
+            env={**os.environ, **user_env, **program["env"]},
             umask=-1 if program["umask"] is None else program["umask"],
             stdin=subprocess.DEVNULL,
             stdout=outputs[0],
             stderr=outputs[1],
             start_new_session=True,  # Ctrl+C in taskmasterd's terminal must not reach the children
+            **ids,
         )
     finally:
         for f in outputs:  # the child has its own copies of these descriptors
