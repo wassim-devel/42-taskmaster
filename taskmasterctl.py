@@ -1,6 +1,5 @@
 import cmd
 import json
-import readline
 import socket
 import sys
 
@@ -10,11 +9,12 @@ class Client:
     def __init__(self, path):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.connect(path)
-        self.file = self.sock.makefile("rb")
+        self.file = self.sock.makefile("rwb")
 
     def send(self, command, *args):
         msg = json.dumps({"cmd": command, "args": list(args)}) + "\n"
-        self.sock.sendall(msg.encode())  # unbuffered: nothing left to flush at exit if the daemon is gone
+        self.file.write(msg.encode())
+        self.file.flush()
         line = self.file.readline()
         if not line:
             raise ConnectionError("daemon disconnected")
@@ -37,62 +37,36 @@ class TaskmasterShell(cmd.Cmd):
     def emptyline(self):
         pass  # cmd.Cmd would repeat the last command, e.g. a restart
 
-    def preloop(self):
-        readline.set_completer_delims(" ")  # complete "web:0" as one word
-
-    def complete_start(self, text, line, begidx, endidx):
-        """Complete the program and process names given by status."""
-        try:
-            lines = self.client.send("status")["output"].splitlines()
-        except OSError:
-            return []
-        procs = [words[0] for words in map(str.split, lines) if words and ":" in words[0]]
-        names = {"all", *procs, *(proc.split(":")[0] for proc in procs)}
-        return sorted(name for name in names if name.startswith(text))
-
-    complete_stop = complete_restart = complete_status = complete_start
-
     def do_status(self, arg):
         """status [<name> ...] : status of all programs, or of some"""
         self._run("status", arg)
 
     def do_start(self, arg):
-        """start <name>|<name>:<index>|all ... : start, and wait until running (starttime)"""
+        """start <name>|<name>:<index>|all"""
         self._run("start", arg)
 
     def do_shutdown(self, arg):
-        """shutdown : stop every program, then the daemon"""
-        if arg:  # like supervisorctl: "shutdown web" must not stop everything
-            print("Error: shutdown accepts no arguments")
-            return
+        """shutdown : stop the daemon"""
         self._run("shutdown", arg)
         return True
 
     def do_stop(self, arg):
-        """stop <name>|<name>:<index>|all ... : stop, and wait until dead (SIGKILL after stoptime)"""
+        """stop <name>|<name>:<index>|all"""
         self._run("stop", arg)
 
     def do_restart(self, arg):
-        """restart <name>|<name>:<index>|all ... : stop, then start"""
+        """restart <name>|<name>:<index>|all"""
         self._run("restart", arg)
 
     def do_reload(self, arg):
-        """reload : reload the config file, like SIGHUP (unchanged programs keep running)"""
-        if arg:
-            print("Error: reload accepts no arguments")
-            return
+        """reload : reload the config file, like SIGHUP"""
         self._run("reload", arg)
 
     def do_quit(self, arg):
         """quit : quits client (daemon continues)"""
         return True
 
-    do_exit = do_quit
-
-    def do_EOF(self, arg):
-        """Ctrl+D : quits client (daemon continues)"""
-        print()  # end the prompt's line
-        return True
+    do_EOF = do_quit # Handle Ctrl+D
 
 
 if __name__ == "__main__":
@@ -102,7 +76,4 @@ if __name__ == "__main__":
         sys.exit("taskmasterd isn't launched")
     except PermissionError:
         sys.exit(f"{SOCK_PATH}: permission denied (taskmasterd runs as root? use sudo)")
-    try:
-        TaskmasterShell(client).cmdloop()
-    except KeyboardInterrupt:
-        print()  # Ctrl+C: leave the client (the daemon continues)
+    TaskmasterShell(client).cmdloop()
